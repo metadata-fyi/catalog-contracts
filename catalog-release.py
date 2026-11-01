@@ -124,14 +124,33 @@ def resolve(lock_path, cache, artifact_directory=None):
         prepared.append({'vertical':entry['vertical'],'path':str(destination.resolve()),'sha256':entry['sha256']})
     return {'version':1,'datasets':prepared,'activation':'prepared-only'}
 
+def verify_workspace(root, lock_path):
+    lock=json.loads(lock_path.read_text())
+    if lock['version']!=1: raise ValueError('lock version mismatch')
+    inventory_data=inventory(root,root/'outputs/catalog-architecture/workspace-inventory.json')
+    expected={v['id']:v for v in inventory_data['verticals']}
+    seen=set()
+    for entry in lock['datasets']:
+        validate_entry(entry)
+        name=entry['vertical']
+        if name in seen or name not in expected: raise ValueError('duplicate/unknown vertical')
+        seen.add(name)
+        manifest={'schema':SCHEMA,'vertical':name,'files':expected[name]['files']}
+        raw=(json.dumps(manifest,indent=2,sort_keys=True)+'\n').encode()
+        if hashlib.sha256(raw).hexdigest()!=entry['sourceManifestSha256']: raise ValueError('workspace differs from pinned release: '+name)
+    if seen!=set(expected): raise ValueError('lock must cover every registered vertical')
+    return {'status':'passed','verticals':len(seen),'source':'pinned-release-manifests'}
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='command',required=True)
     i=sub.add_parser('inventory');i.add_argument('--output',type=Path,required=True)
     b=sub.add_parser('pack');b.add_argument('vertical');b.add_argument('--output',type=Path,required=True)
     r=sub.add_parser('resolve');r.add_argument('--lock',type=Path,required=True);r.add_argument('--cache',type=Path,required=True);r.add_argument('--artifact-directory',type=Path)
+    w=sub.add_parser('verify-workspace');w.add_argument('--lock',type=Path,default=ROOT/'catalog.lock.json')
     a=p.parse_args()
     if a.command=='inventory': result=inventory(ROOT,a.output)
     elif a.command=='pack': result=pack(ROOT,a.vertical,a.output)
+    elif a.command=='verify-workspace': result=verify_workspace(ROOT,a.lock)
     else: result=resolve(a.lock,a.cache,a.artifact_directory)
     print(json.dumps(result,indent=2))
 if __name__=='__main__': main()
