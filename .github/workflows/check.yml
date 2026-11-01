@@ -11,3 +11,11 @@ jobs:
           persist-credentials: false
       - run: python3 -m py_compile catalog-release.py validate-source.py validate-normalized.py
       - run: python3 validate-normalized.py fixtures/original.json
+      - run: python3 tests/catalog-ownership-e2e.py
+      - run: python3 tests/catalog-normalized-e2e.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-e2e-${{ github.sha }}
+          path: outputs/catalog-architecture/*.json
+          retention-days: 14

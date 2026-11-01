@@ -16,3 +16,15 @@ Before implementation, the acceptance scenarios are:
 The repeatable E2E creates local release artifacts, resolves them, corrupts bytes,
 tries hostile archives and invalid locks, and writes a JSON receipt. Production
 activation remains gated on API equivalence and a disposable rollback proof.
+
+## Generated workspace hydration and runner mirror
+
+- A lock omits a registered vertical or introduces an unknown one: reject before copying.
+- A verified file changes during copying: hash its staged destination before replacement.
+- A source path or destination directory is a symlink: reject; never follow it into another tree.
+- Hydration is interrupted: the build gate rejects the mixed workspace; no deployed release is activated.
+- Runner cache is missing, corrupt or out of disk budget: fail the build; keep production running.
+- An update evicts artifacts referenced by recent locks: retain current, previous and incoming pins.
+- The mirror is writable inside CI or receives an operator's personal token: mount archives read-only and transfer files over the existing SSH channel; store no GitHub token in CI.
+- A collector output changes during export to its owning repository: reject the snapshot and leave its source manifest uncommitted; never publish automatically.
+- A future API import reintroduces a tracked application copy of source JSON: reject workspace ownership verification until that input is generated from its data repository.

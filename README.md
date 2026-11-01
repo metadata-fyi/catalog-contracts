@@ -26,3 +26,16 @@ metadata permission and media permission evidence. An approved field is a review
 assertion, not an automatically inferred license grant. `fixtures/original.json`
 is synthetic original data dedicated to the public domain (CC0-1.0). No existing
 upstream corpus is relicensed by this example.
+
+Application workspaces can hydrate exact pins without Git submodules:
+
+```sh
+python3 catalog-release.py hydrate --workspace /path/to/app --lock /path/to/app/catalog.lock.json --cache /tmp/catalog-cache --artifact-directory /path/to/verified-archives
+python3 catalog-release.py verify-workspace --workspace /path/to/app --lock /path/to/app/catalog.lock.json
+```
+
+Hydration preserves existing identical files, rejects unsafe paths and requires
+complete registry coverage. Application source inputs must be generated rather
+than tracked copies. Runtime artifact preparation includes only checked source
+files; raw vertical review captures are excluded. Alias uniqueness is scoped to
+the vertical and entity kind, even when a preserved legacy ID contains slashes.
