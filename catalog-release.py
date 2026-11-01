@@ -27,7 +27,7 @@ def sources(root):
             if Path(name).name != name or not (data/vertical/name).is_file(): raise ValueError('invalid source '+name)
     return found
 
-def inventory(root, output):
+def inventory(root, output=None):
     result = {'schema': SCHEMA, 'verticals': []}
     for vertical, names in sources(root).items():
         files = []
@@ -38,7 +38,7 @@ def inventory(root, output):
           'files':files,'bytes':sum(f['bytes'] for f in files),
           'publicExport':{'status':'blocked','reason':'Per-record metadata and media permission evidence not yet recorded'},
           'excluded':'Raw snapshots, evidence, reports, runtime state and local image binaries'})
-    write(output,result)
+    if output is not None: write(output,result)
     return result
 
 def pack(root, vertical, output):
@@ -128,7 +128,7 @@ def resolve(lock_path, cache, artifact_directory=None):
 def verify_workspace(root, lock_path):
     lock=json.loads(lock_path.read_text())
     if lock['version']!=1: raise ValueError('lock version mismatch')
-    inventory_data=inventory(root,root/'outputs/catalog-architecture/workspace-inventory.json')
+    inventory_data=inventory(root)
     expected={v['id']:v for v in inventory_data['verticals']}
     seen=set()
     for entry in lock['datasets']:
@@ -140,7 +140,77 @@ def verify_workspace(root, lock_path):
         raw=(json.dumps(manifest,indent=2,sort_keys=True)+'\n').encode()
         if hashlib.sha256(raw).hexdigest()!=entry['sourceManifestSha256']: raise ValueError('workspace differs from pinned release: '+name)
     if seen!=set(expected): raise ValueError('lock must cover every registered vertical')
+    if (root/'.git').exists():
+        paths=['packages/api/data/'+v['id']+'/'+f['path'] for v in inventory_data['verticals'] for f in v['files']]
+        tracked=subprocess.run(['git','ls-files','--',*paths],cwd=root,capture_output=True,text=True,check=True).stdout.splitlines()
+        if tracked: raise ValueError('catalog inputs must be generated, not tracked in the application: '+tracked[0])
     return {'status':'passed','verticals':len(seen),'source':'pinned-release-manifests'}
+
+def materialize_runtime(root, destination):
+    release_root=root/'.release'
+    destination=destination.absolute()
+    if release_root.is_symlink() or destination.is_symlink() or destination.resolve()==release_root.resolve() or not destination.resolve().is_relative_to(release_root.resolve()): raise ValueError('runtime sources must be prepared inside a release artifact')
+    verify_workspace(root,root/'catalog.lock.json')
+    inventory_data=inventory(root)
+    lock=json.loads((root/'catalog.lock.json').read_text())
+    entries={e['vertical']:e for e in lock['datasets']}
+    data=destination/'packages/api/data'
+    for directory in (destination,destination/'packages',destination/'packages/api',data):
+        if directory.is_symlink(): raise ValueError('artifact directory links are forbidden')
+    data.mkdir(parents=True,exist_ok=True)
+    total=0
+    for vertical in inventory_data['verticals']:
+        name=vertical['id']
+        manifest={'schema':SCHEMA,'vertical':name,'files':vertical['files']}
+        raw=(json.dumps(manifest,indent=2,sort_keys=True)+'\n').encode()
+        if hashlib.sha256(raw).hexdigest()!=entries[name]['sourceManifestSha256']: raise ValueError('source changed before runtime preparation')
+        target=data/name
+        if target.is_symlink(): raise ValueError('artifact source directory must not be a symlink')
+        if target.exists(): shutil.rmtree(target)
+        target.mkdir()
+        source=root/'packages/api/data'/name
+        if source.is_symlink(): raise ValueError('source directory must not be a symlink')
+        for item in vertical['files']:
+            src=source/item['path'];dst=target/item['path']
+            if src.is_symlink(): raise ValueError('source links are forbidden')
+            shutil.copy2(src,dst)
+            if dst.stat().st_size!=item['bytes'] or digest(dst)!=item['sha256']: raise ValueError('source changed while preparing artifact')
+            total+=1
+    receipt={'version':1,'catalogLockSha256':digest(root/'catalog.lock.json'),'verticals':len(entries),'sourceFiles':total,'rawEvidenceIncluded':False}
+    write(destination/'catalog-runtime-manifest.json',receipt)
+    return receipt
+
+def hydrate(root, lock_path, cache, artifact_directory=None):
+    lock=json.loads(lock_path.read_text())
+    registry=json.loads((root/'packages/api/data/vertical-registry.json').read_text())
+    known={v['id'] for v in registry['verticals']}
+    names=[e['vertical'] for e in lock['datasets']]
+    if set(names)!=known or len(names)!=len(known): raise ValueError('lock must cover every registered vertical exactly once')
+    prepared=resolve(lock_path,cache,artifact_directory)
+    data=root/'packages/api/data'
+    if data.is_symlink(): raise ValueError('data directory must not be a symlink')
+    receipt=[]
+    for dataset in prepared['datasets']:
+        source=Path(dataset['path'])
+        manifest=json.loads((source/'source-manifest.json').read_text())
+        target=data/dataset['vertical']
+        if target.is_symlink(): raise ValueError('vertical directory must not be a symlink')
+        target.mkdir(parents=True,exist_ok=True)
+        for item in manifest['files']:
+            destination=target/item['path']
+            if destination.is_symlink(): raise ValueError('source destination must not be a symlink')
+            if destination.is_file() and destination.stat().st_size==item['bytes'] and digest(destination)==item['sha256']: continue
+            with tempfile.NamedTemporaryFile(dir=target,prefix='.catalog-',delete=False) as output:
+                temporary=Path(output.name)
+                try:
+                    with (source/'data'/item['path']).open('rb') as input_file: shutil.copyfileobj(input_file,output,1024*1024)
+                    output.flush()
+                    if temporary.stat().st_size!=item['bytes'] or digest(temporary)!=item['sha256']: raise ValueError('source changed during hydration')
+                    os.chmod(temporary,0o644);os.replace(temporary,destination)
+                finally:
+                    if temporary.exists(): temporary.unlink()
+        receipt.append({'vertical':dataset['vertical'],'files':len(manifest['files']),'sha256':dataset['sha256']})
+    return {'status':'hydrated','activation':'build-workspace-only','datasets':receipt}
 
 def pin_release(root, lock_path, repository, tag, sync=False):
     if not re.fullmatch(r'metadata-fyi/data-[a-z]+',repository) or not re.fullmatch(r'[a-zA-Z0-9_.-]+',tag): raise ValueError('invalid repository/tag')
@@ -184,13 +254,17 @@ def main():
     i=sub.add_parser('inventory');i.add_argument('--output',type=Path,required=True)
     b=sub.add_parser('pack');b.add_argument('vertical');b.add_argument('--output',type=Path,required=True)
     r=sub.add_parser('resolve');r.add_argument('--lock',type=Path,required=True);r.add_argument('--cache',type=Path,required=True);r.add_argument('--artifact-directory',type=Path)
-    w=sub.add_parser('verify-workspace');w.add_argument('--lock',type=Path,default=ROOT/'catalog.lock.json')
+    w=sub.add_parser('verify-workspace');w.add_argument('--lock',type=Path,default=ROOT/'catalog.lock.json');w.add_argument('--workspace',type=Path,default=ROOT)
     u=sub.add_parser('pin');u.add_argument('--lock',type=Path,default=ROOT/'catalog.lock.json');u.add_argument('--repository',required=True);u.add_argument('--tag',required=True);u.add_argument('--sync-workspace',action='store_true')
+    h=sub.add_parser('hydrate');h.add_argument('--lock',type=Path,default=ROOT/'catalog.lock.json');h.add_argument('--cache',type=Path,required=True);h.add_argument('--artifact-directory',type=Path);h.add_argument('--workspace',type=Path,default=ROOT)
+    m=sub.add_parser('materialize-runtime');m.add_argument('--destination',type=Path,required=True);m.add_argument('--workspace',type=Path,default=ROOT)
     a=p.parse_args()
     if a.command=='inventory': result=inventory(ROOT,a.output)
     elif a.command=='pack': result=pack(ROOT,a.vertical,a.output)
-    elif a.command=='verify-workspace': result=verify_workspace(ROOT,a.lock)
+    elif a.command=='verify-workspace': result=verify_workspace(a.workspace,a.lock)
     elif a.command=='pin': result=pin_release(ROOT,a.lock,a.repository,a.tag,a.sync_workspace)
+    elif a.command=='hydrate': result=hydrate(a.workspace,a.lock,a.cache,a.artifact_directory)
+    elif a.command=='materialize-runtime': result=materialize_runtime(a.workspace,a.destination)
     else: result=resolve(a.lock,a.cache,a.artifact_directory)
     print(json.dumps(result,indent=2))
 if __name__=='__main__': main()

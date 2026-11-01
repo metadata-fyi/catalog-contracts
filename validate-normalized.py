@@ -10,13 +10,13 @@ def validate(catalog):
         if not isinstance(identity,str) or not re.fullmatch(r'[a-z]+/[a-z]+/[^\s]+',identity) or identity in ids: raise ValueError('invalid/duplicate identity')
         if not e.get('legacyId') or identity.split('/',2)[2]!=e['legacyId']: raise ValueError('legacy ID must be preserved')
         ids.add(identity)
-        key=(identity.rsplit('/',1)[0],e['legacyId'].casefold())
+        key=('/'.join(identity.split('/',2)[:2]),e['legacyId'].casefold())
         if key in aliases and aliases[key]!=identity: raise ValueError('ambiguous canonical identity')
         aliases[key]=identity
     for e in entities:
         for alias in e.get('aliases',[]):
             if not isinstance(alias,str) or not alias: raise ValueError('invalid alias')
-            key=(e['ref'].rsplit('/',1)[0],alias.casefold())
+            key=('/'.join(e['ref'].split('/',2)[:2]),alias.casefold())
             if key in aliases and aliases[key]!=e['ref']: raise ValueError('ambiguous alias')
             aliases[key]=e['ref']
         for target in e.get('relationships',[]):
