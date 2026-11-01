@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "version",
+    "datasets"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "datasets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "vertical",
+          "repository",
+          "commit",
+          "schema",
+          "artifactUrl",
+          "sha256",
+          "sourceManifestSha256",
+          "bytes",
+          "policyVersion"
+        ],
+        "properties": {
+          "vertical": {
+            "type": "string",
+            "pattern": "^[a-z]+$"
+          },
+          "repository": {
+            "type": "string",
+            "pattern": "^metadata-fyi/data-[a-z]+$"
+          },
+          "commit": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "schema": {
+            "const": "metadata.catalog/1"
+          },
+          "artifactUrl": {
+            "type": "string",
+            "pattern": "^https://github.com/metadata-fyi/data-"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "sourceManifestSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8589934592
+          },
+          "policyVersion": {
+            "const": 1
+          }
+        }
+      }
+    }
+  }
+}
