@@ -69,6 +69,7 @@ def validate_entry(entry):
     if not url.startswith('https://github.com/'+entry['repository']+'/releases/download/'): raise ValueError('untrusted artifact URL')
 
 def verify_directory(directory, entry):
+    if directory.is_symlink() or any(p.is_symlink() for p in directory.rglob('*')): raise ValueError('cache symlinks are forbidden')
     mp=directory/'source-manifest.json'
     if digest(mp)!=entry['sourceManifestSha256']: raise ValueError('source manifest mismatch')
     manifest=json.loads(mp.read_text())
@@ -114,7 +115,7 @@ def resolve(lock_path, cache, artifact_directory=None):
                 unpack=stage/'unpack';unpack.mkdir(); total=0; paths=set()
                 with tarfile.open(blob,'r:gz') as archive:
                     for member in archive:
-                        if not member.isfile() or member.name in paths or not re.fullmatch(r'(source-manifest\.json|data/[a-zA-Z0-9_.-]+)',member.name): raise ValueError('unsafe archive member')
+                        if not member.isfile() or member.name in paths or Path(member.name).name in ('.','..') or not re.fullmatch(r'(source-manifest\.json|data/[a-zA-Z0-9_.-]+)',member.name): raise ValueError('unsafe archive member')
                         paths.add(member.name);total+=member.size
                         if total>MAX_BYTES: raise ValueError('extraction limit exceeded')
                         target=unpack/member.name;target.parent.mkdir(exist_ok=True)
@@ -173,6 +174,7 @@ def pin_release(root, lock_path, repository, tag, sync=False):
                 temporary=target/(file.name+'.catalog-update')
                 shutil.copyfile(file,temporary);os.replace(temporary,target/file.name)
         lock=json.loads(lock_path.read_text())
+        if not any(e['vertical']==entry['vertical'] for e in lock['datasets']): raise ValueError('vertical is not registered in lock')
         lock['datasets']=[entry if e['vertical']==entry['vertical'] else e for e in lock['datasets']]
         write(lock_path,lock)
         return {'status':'pinned','entry':entry,'workspaceSynchronized':sync}
