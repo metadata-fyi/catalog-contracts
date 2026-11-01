@@ -1,0 +1,13 @@
+name: contracts
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m py_compile catalog-release.py validate-source.py validate-normalized.py
+      - run: python3 validate-normalized.py fixtures/original.json

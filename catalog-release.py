@@ -141,16 +141,54 @@ def verify_workspace(root, lock_path):
     if seen!=set(expected): raise ValueError('lock must cover every registered vertical')
     return {'status':'passed','verticals':len(seen),'source':'pinned-release-manifests'}
 
+def pin_release(root, lock_path, repository, tag, sync=False):
+    if not re.fullmatch(r'metadata-fyi/data-[a-z]+',repository) or not re.fullmatch(r'[a-zA-Z0-9_.-]+',tag): raise ValueError('invalid repository/tag')
+    response=subprocess.run(['gh','api','repos/'+repository+'/releases/tags/'+tag],capture_output=True,text=True,check=True)
+    remote=json.loads(response.stdout)
+    artifacts=[a for a in remote['assets'] if a['name'].endswith('.tar.gz')]
+    if len(artifacts)!=1: raise ValueError('release must have exactly one source archive')
+    asset=artifacts[0]
+    if not 0<asset['size']<=MAX_BYTES: raise ValueError('artifact size limit')
+    with tempfile.TemporaryDirectory(prefix='metadata-pin-') as td:
+        stage=Path(td)
+        subprocess.run(['gh','release','download',tag,'--repo',repository,'--pattern',asset['name'],'--dir',str(stage)],check=True,capture_output=True)
+        archive=stage/asset['name']
+        with tarfile.open(archive,'r:gz') as tar:
+            member=tar.getmember('source-manifest.json')
+            if not member.isfile() or member.size>16*1024*1024: raise ValueError('invalid source manifest')
+            raw=tar.extractfile(member).read()
+        manifest=json.loads(raw)
+        entry={'vertical':repository.removeprefix('metadata-fyi/data-'),'repository':repository,
+          'commit':remote['target_commitish'],'schema':manifest['schema'],'artifactUrl':asset['browser_download_url'],
+          'sha256':digest(archive),'bytes':archive.stat().st_size,'sourceManifestSha256':hashlib.sha256(raw).hexdigest(),'policyVersion':1}
+        validate_entry(entry)
+        if manifest['vertical']!=entry['vertical']: raise ValueError('vertical mismatch')
+        archive.rename(stage/(entry['sha256']+'.tar.gz'))
+        fixture=stage/'lock.json';write(fixture,{'version':1,'datasets':[entry]})
+        prepared=resolve(fixture,stage/'cache',stage)
+        if sync:
+            source=Path(prepared['datasets'][0]['path'])/'data'
+            target=root/'packages/api/data'/entry['vertical']
+            for file in source.iterdir():
+                temporary=target/(file.name+'.catalog-update')
+                shutil.copyfile(file,temporary);os.replace(temporary,target/file.name)
+        lock=json.loads(lock_path.read_text())
+        lock['datasets']=[entry if e['vertical']==entry['vertical'] else e for e in lock['datasets']]
+        write(lock_path,lock)
+        return {'status':'pinned','entry':entry,'workspaceSynchronized':sync}
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='command',required=True)
     i=sub.add_parser('inventory');i.add_argument('--output',type=Path,required=True)
     b=sub.add_parser('pack');b.add_argument('vertical');b.add_argument('--output',type=Path,required=True)
     r=sub.add_parser('resolve');r.add_argument('--lock',type=Path,required=True);r.add_argument('--cache',type=Path,required=True);r.add_argument('--artifact-directory',type=Path)
     w=sub.add_parser('verify-workspace');w.add_argument('--lock',type=Path,default=ROOT/'catalog.lock.json')
+    u=sub.add_parser('pin');u.add_argument('--lock',type=Path,default=ROOT/'catalog.lock.json');u.add_argument('--repository',required=True);u.add_argument('--tag',required=True);u.add_argument('--sync-workspace',action='store_true')
     a=p.parse_args()
     if a.command=='inventory': result=inventory(ROOT,a.output)
     elif a.command=='pack': result=pack(ROOT,a.vertical,a.output)
     elif a.command=='verify-workspace': result=verify_workspace(ROOT,a.lock)
+    elif a.command=='pin': result=pin_release(ROOT,a.lock,a.repository,a.tag,a.sync_workspace)
     else: result=resolve(a.lock,a.cache,a.artifact_directory)
     print(json.dumps(result,indent=2))
 if __name__=='__main__': main()

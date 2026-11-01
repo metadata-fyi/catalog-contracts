@@ -19,3 +19,10 @@ schema. Preserve existing IDs, aliases and SKU URIs during migration.
 Code in this repository is MIT licensed. This license does not license upstream
 data, card artwork, manufacturer photography or trademarks. Every redistributable
 record and image needs separate permission evidence. See `CONTRIBUTING.md`.
+
+`validate-normalized.py export.json` checks explicit public export envelopes:
+preserved legacy IDs, namespaced references, alias ambiguity, relationship targets,
+metadata permission and media permission evidence. An approved field is a review
+assertion, not an automatically inferred license grant. `fixtures/original.json`
+is synthetic original data dedicated to the public domain (CC0-1.0). No existing
+upstream corpus is relicensed by this example.

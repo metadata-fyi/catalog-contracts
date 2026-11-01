@@ -1,0 +1,14 @@
+{
+  "entities": [{
+    "ref": "figures/items/contract-example",
+    "legacyId": "contract-example",
+    "aliases": [],
+    "relationships": [],
+    "metadataPermission": {
+      "approved": true,
+      "license": "CC0-1.0",
+      "evidence": "Original synthetic contract fixture; dedicated to the public domain by Metadata contributors."
+    }
+  }],
+  "assets": []
+}
