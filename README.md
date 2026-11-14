@@ -1,41 +1,34 @@
 # Metadata catalog contracts
 
-Version 1 defines independent catalog source releases. Each vertical owns its
-source files, contribution review and asset permissions. Applications pin a full
-repository commit, artifact checksum and source-manifest checksum in a lockfile.
-No submodules or runtime Git clones are required.
+Schemas and standard-library Python tooling for immutable catalog releases.
+Applications pin repository commits, archive bytes/checksums and source-manifest
+checksums. Source releases preserve existing IDs, aliases and SKU URIs.
 
-`catalog-release.py inventory` inspects runtime source imports and the explicit
-TCG shard list. It excludes raw snapshots, review captures, runtime databases,
-service accounts and image binaries. `pack` creates an immutable per-vertical
-archive. `resolve` verifies it into a content-addressed cache without activating it.
-
-The JSON schemas document the transport contract. The Python resolver enforces
-archive safety, schema versions, repository ownership, pins, byte limits and
-source hashes. It uses the authenticated GitHub CLI for private releases. The
-schemas do not imply that existing legacy rows meet a new normalized entity
-schema. Preserve existing IDs, aliases and SKU URIs during migration.
-
-Code in this repository is MIT licensed. This license does not license upstream
-data, card artwork, manufacturer photography or trademarks. Every redistributable
-record and image needs separate permission evidence. See `CONTRIBUTING.md`.
-
-`validate-normalized.py export.json` checks explicit public export envelopes:
-preserved legacy IDs, namespaced references, alias ambiguity, relationship targets,
-metadata permission and media permission evidence. An approved field is a review
-assertion, not an automatically inferred license grant. `fixtures/original.json`
-is synthetic original data dedicated to the public domain (CC0-1.0). No existing
-upstream corpus is relicensed by this example.
-
-Application workspaces can hydrate exact pins without Git submodules:
+| Tool | Purpose |
+| --- | --- |
+| `catalog-release.py inventory` | List allowlisted application source inputs |
+| `catalog-release.py pack` | Pack an immutable per-vertical archive |
+| `catalog-release.py resolve` | Verify archives in a content-addressed cache |
+| `catalog-release.py hydrate` | Materialize the application's exact source pins |
+| `catalog-release.py verify-workspace` | Check hydrated files against their manifests |
+| `validate-normalized.py export.json` | Validate explicit public export envelopes |
 
 ```sh
-python3 catalog-release.py hydrate --workspace /path/to/app --lock /path/to/app/catalog.lock.json --cache /tmp/catalog-cache --artifact-directory /path/to/verified-archives
+python3 catalog-release.py hydrate --workspace /path/to/app --lock /path/to/app/catalog.lock.json --cache /tmp/catalog-cache
 python3 catalog-release.py verify-workspace --workspace /path/to/app --lock /path/to/app/catalog.lock.json
 ```
 
-Hydration preserves existing identical files, rejects unsafe paths and requires
-complete registry coverage. Application source inputs must be generated rather
-than tracked copies. Runtime artifact preparation includes only checked source
-files; raw vertical review captures are excluded. Alias uniqueness is scoped to
-the vertical and entity kind, even when a preserved legacy ID contains slashes.
+Private release downloads require authenticated GitHub CLI access. The resolver
+checks archive safety, ownership, schema versions, byte limits and hashes.
+Hydration rejects unsafe paths and incomplete registry coverage. It does not
+activate production; runtime artifacts include only checked source files.
+
+Transport schemas do not certify normalized legacy rows or public-export rights.
+Normalized exports must preserve identities, namespace references, reject ambiguous
+aliases/dangling targets and include metadata/media permission evidence. Alias
+uniqueness is scoped to vertical and entity kind. `fixtures/original.json` is
+synthetic CC0 data; it does not relicense upstream catalogs.
+
+Code is MIT licensed. Upstream data, images and trademarks retain separate rights.
+See [Contributing](CONTRIBUTING.md) and the
+[application catalog workflow](https://github.com/metadata-fyi/metadata/blob/main/docs/CATALOG-REPOSITORIES.md).
